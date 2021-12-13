@@ -1,3 +1,5 @@
 export default function Header() {
-  // TODO
+  return(
+    <h1>Logo</h1>
+  )
 }
