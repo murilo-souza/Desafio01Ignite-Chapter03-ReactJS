@@ -4,10 +4,14 @@ import { getPrismicClient } from '../../services/prismic';
 
 import commonStyles from '../../styles/common.module.scss';
 import styles from './post.module.scss';
-
+import Prismic from '@prismicio/client'
 import Head from 'next/head'
 import Header from '../../components/Header';
 import { FiCalendar, FiClock, FiUser } from 'react-icons/fi';
+import { RichText } from 'prismic-dom';
+import { useRouter } from 'next/router';
+import { ptBR } from 'date-fns/locale';
+import { format } from 'date-fns';
 
 interface Post {
   first_publication_date: string | null;
@@ -30,55 +34,122 @@ interface PostProps {
   post: Post;
 }
 
-export default function Post({post}: PostProps) {
- return(
-   <>
-    <Head>
+export default function Post({post}: PostProps): JSX.Element{
+  const totalWords = post.data.content.reduce((total, contentItem)=>{
+    total += contentItem.heading.split(' ').length;
+    const words = contentItem.body.map(item => item.text.split(' ').length);
+    words.map(word => (total += word));
+    return total;
+  }, 0)
+  
+  const readTime = Math.ceil(totalWords/200)
 
+  const router = useRouter()
+
+  if(router.isFallback){
+    return <h1>Carregando...</h1>
+  }
+
+  const formattedDate = format(
+    new Date(post.first_publication_date),
+    'dd MMM yyyy',
+    {
+      locale: ptBR
+    }
+  )
+  return(
+    <>
+    <Head>
+      <title>{`${post.data.title} | Spacetraveling`}</title>
     </Head>
-    <Header/>
-    <img src="/Banner.png" alt="imagem" className={styles.banner}/>
-    <main className={commonStyles.container}>
-      <div className={styles.post}>
-        <div className={styles.postTop}>
-          <h1>Algum titulo para exemplo</h1>
-          <ul>
-            <li>
-              <FiCalendar/>
-              12 mar 2021
-            </li>
-            <li>
-              <FiUser/>
-              Murilo Souza
-            </li>
-            <li>
-              <FiClock/>
-              120 min
-            </li>
-          </ul>
+      <Header/>
+      <img src={post.data.banner.url} alt="imagem" className={styles.banner}/>
+      <main className={commonStyles.container}>
+        <div className={styles.post}>
+          <div className={styles.postTop}>
+            <h1>{post.data.title}</h1>
+            <ul>
+              <li>
+                <FiCalendar/>
+                {formattedDate}
+              </li>
+              <li>
+                <FiUser/>
+                {post.data.author}
+              </li>
+              <li>
+                <FiClock/>
+                {`${readTime} min`}
+              </li>
+            </ul>
+          </div>
+          {post.data.content.map(content =>{
+          return (
+            <article key = {content.heading}>
+              <h2>{content.heading}</h2>
+              <div
+                className={styles.postContent}
+                dangerouslySetInnerHTML={{
+                  __html: RichText.asHtml(content.body)
+                }}
+              />
+            </article>
+          )
+
+        })}
         </div>
-        <article>
-          <h2>Titulo secundario</h2>
-          <p>
-            Lorem ipsum dolor sit amet consectetur adipisicing elit. Nam numquam ipsa provident tempora cupiditate asperiores cum illo, veniam eum dolore harum illum exercitationem unde, obcaecati explicabo velit recusandae est fuga! Minus exercitationem accusamus, tempore earum, iusto enim magni deserunt error alias neque dolore perspiciatis, doloribus ipsam ex temporibus obcaecati saepe ullam provident voluptatibus. In reprehenderit cum repudiandae maxime id quos iure nulla obcaecati possimus quia. Tempora voluptas earum quam expedita repudiandae accusantium qui odit ad ullam natus nesciunt, ipsa omnis modi nobis maiores placeat animi in consectetur! Assumenda suscipit omnis libero porro. Cumque nisi nam doloribus nostrum reprehenderit, velit quis nulla ipsum omnis facilis? Non nesciunt cum rerum beatae quidem, laboriosam labore numquam maxime vero eius officiis amet hic assumenda fuga odit maiores suscipit, similique ducimus praesentium explicabo nam, ad vitae. Sunt animi magni molestiae asperiores, autem laudantium assumenda consectetur maxime soluta voluptates ad quis itaque alias totam doloribus error harum, eveniet quas. Id nemo debitis minima adipisci, recusandae ipsam beatae quod tempora fugiat molestiae autem modi molestias nulla in sequi harum aliquid saepe inventore possimus exercitationem? Pariatur aliquid voluptatem sint consequuntur incidunt possimus nemo laboriosam fuga accusantium! Adipisci, numquam repellendus? Nesciunt, quibusdam a ipsum voluptas eveniet illum repudiandae quam?
-          </p>
-        </article>
-      </div>
-    </main>
-   </>
- )
+      </main>
+    </>
+  )
 }
 
-// export const getStaticPaths = async () => {
-//   const prismic = getPrismicClient();
-//   const posts = await prismic.query(TODO);
+export const getStaticPaths: GetStaticPaths = async () => {
+  const prismic = getPrismicClient();
+  const posts = await prismic.query([
+    Prismic.Predicates.at("document.type", 'post'),
+  ]);
+  const paths = posts.results.map(post=>{
+    return {
+      params: {
+        slug: post.uid
+      }
+    }
+  })
 
-//   // TODO
-// };
 
-// export const getStaticProps = async context => {
-//   const prismic = getPrismicClient();
-//   const response = await prismic.getByUID(TODO);
+  return {
+    paths,
+    fallback: true,
+  }
+};
 
-//   // TODO
-// };
+export const getStaticProps: GetStaticProps = async context => {
+  const prismic = getPrismicClient()
+  const {slug} = context.params
+  const response = await prismic.getByUID("posts", String(slug) , {});
+  
+  const post ={
+    uid: response.id,
+    first_publication_date: response.first_publication_date,
+    data: {
+      title: response.data.title,
+      subtitle: response.data.subtitle,
+      author: response.data.author,
+      banner: {
+        url: response.data.banner.url,
+      },
+      content: response.data.content.map(content => {
+        return {
+          heading: content.heading,
+          body: [...content.body]
+        }
+      })
+    }
+  }
+
+
+  console.log(post)
+  return {
+    props: {post}
+  }
+};
